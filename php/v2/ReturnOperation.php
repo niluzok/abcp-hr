@@ -64,13 +64,14 @@ class TsReturnOperation extends ReferencesOperation
             throw new \Exception(__('errorOperationInputData', $errors));
         }
 
+        $reseller = Seller::getById($data['resellerId']);
         $client = Contractor::getById($data['clientId']);
         $creator = Employee::getById($data['creatorId']);
         $expert = Employee::getById($data['expertId']);
 
         $templateData = $this->prepareTemplateData($client, $creator, $expert, $data);
 
-        $employeeEmailsSent = $this->employeeSendEmailNotifications($templateData);
+        $employeeEmailsSent = $reseller->notifyEmployees($templateData);
 
         $clientEmailSent = false;
         $clientMobileNotificationSent = false;
@@ -78,11 +79,7 @@ class TsReturnOperation extends ReferencesOperation
 
         // Шлём клиентское уведомление, только если произошла смена статуса
         if ($data['notificationType'] === self::TYPE_CHANGE && !empty($data['differences']['to'])) {
-            $clientEmailSent = $this->clientSendEmailNotification($client, $templateData);
-
-            if (!empty($client->mobile)) {
-                $clientMobileNotificationSent = $this->clientSendMobileNotification($client, $templateData, $mobileError);
-            }
+            $clientEmailSent = $client->notify($templateData);
         }
 
         return [
@@ -158,65 +155,6 @@ class TsReturnOperation extends ReferencesOperation
         }
 
         return '';
-    }
-
-    /**
-     * Отправляет email-уведомления сотрудникам
-     *
-     * @param array $templateData Данные для использования в шаблоне
-     * @return bool Произошла ли отправка хотя бы одного email
-     */
-    protected function employeeSendEmailNotifications(array $templateData): bool
-    {
-        $resellerId = $templateData['COMPLAINT_ID'];
-        $resellerEmailFrom = getResellerEmailFrom($resellerId);
-        $emails = getEmailsByPermit($resellerId, 'tsGoodsReturn');
-
-        if (!empty($resellerEmailFrom) && count($emails) > 0) {
-            foreach ($emails as $email) {
-                MessagesClient::sendMessage([
-                    [
-                        'emailFrom' => $resellerEmailFrom,
-                        'emailTo'   => $email,
-                        'subject'   => __('complaintEmployeeEmailSubject', $templateData),
-                        'message'   => __('complaintEmployeeEmailBody', $templateData),
-                    ],
-                ], $resellerId, NotificationEvents::CHANGE_RETURN_STATUS);
-                
-            }
-            
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Отправляет email-уведомление клиенту
-     *
-     * @param Contractor $client Клиент
-     * @param array $templateData Данные для использования в шаблоне email
-     * @return bool Успешно ли отправлено письмо
-     */
-    protected function clientSendEmailNotification(Contractor $client, array $templateData): bool
-    {
-        $resellerId = $templateData['COMPLAINT_ID'];
-        $resellerEmailFrom = getResellerEmailFrom($resellerId);
-        
-        if (!empty($resellerEmailFrom) && !empty($client->email)) {
-            MessagesClient::sendMessage([
-                [
-                    'emailFrom' => $resellerEmailFrom,
-                    'emailTo'   => $client->email,
-                    'subject'   => __('complaintClientEmailSubject', $templateData),
-                    'message'   => __('complaintClientEmailBody', $templateData),
-                ],
-            ], $resellerId, $client->id, NotificationEvents::CHANGE_RETURN_STATUS, (int)$templateData['DIFFERENCES_TO']);
-            
-            return true;
-        }
-
-        return false;
     }
 
     /**

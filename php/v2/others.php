@@ -28,10 +28,6 @@ class Contractor
     }
 }
 
-class Seller extends Contractor
-{
-}
-
 class Employee extends Contractor
 {
 }
@@ -60,17 +56,6 @@ abstract class ReferencesOperation
     {
         return $_REQUEST[$pName];
     }
-}
-
-function getResellerEmailFrom()
-{
-    return 'contractor@example.com';
-}
-
-function getEmailsByPermit($resellerId, $event)
-{
-    // fakes the method
-    return ['someemeil@example.com', 'someemeil2@example.com'];
 }
 
 class NotificationEvents
