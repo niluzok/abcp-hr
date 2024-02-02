@@ -2,11 +2,21 @@
 
 namespace NW\WebService\References\Operations\Notification;
 
+/**
+ * Обрабатывает операции уведомлений о возвратах
+ */
 class TsReturnOperation extends ReferencesOperation
 {
     public const TYPE_NEW    = 1;
     public const TYPE_CHANGE = 2;
 
+    /**
+     * Проверяет данные, переданные в запросе
+     *
+     * @param array $data Входные данные 
+     * @param array &$errors Собирает ошибки, найденные во время валидации
+     * @return bool Валидны или нет данные
+     */
     protected function validateRequestData(array $data, array &$errors): bool
     {
         if (empty($data['resellerId'])) {
@@ -40,7 +50,10 @@ class TsReturnOperation extends ReferencesOperation
     }
 
     /**
-     * @throws \Exception
+     * Обработчик операции
+     *
+     * @throws \Exception Выбрасывает исключение, если валидация не пройдена или произошла ошибка
+     * @return array Возвращает массив с результатами
      */
     public function doOperation(): array
     {
@@ -82,12 +95,21 @@ class TsReturnOperation extends ReferencesOperation
         ];
     }
 
+    /**
+     * Подготавливает данные для подстановки в шаблон
+     *
+     * @param Contractor $client Экземпляр заказчика (клиента)
+     * @param Employee $creator Экземпляр сотрудника, создавшего операцию
+     * @param Employee $expert Экземпляр экспертного сотрудника
+     * @param array $data Данные, необходимые для шаблона
+     * @return array Возвращает массив подготовленных данных
+     */
     protected function prepareTemplateData(Contractor $client, Employee $creator, Employee $expert, array $data): array
     {
 
         $clientFullName = $client->getFullNameForClient();
 
-        $differences = $this->getDifferencesText($data);
+        $differences = $this->getChangedStatusMessage($data);
 
         $templateData = [
             'COMPLAINT_ID' => $data['complaintId'],
@@ -117,7 +139,13 @@ class TsReturnOperation extends ReferencesOperation
         return $templateData;
     }
 
-    protected function getDifferencesText(array $data): string
+    /**
+     * Генерирует текст о изменившимся статусе
+     *
+     * @param array $data Данные
+     * @return string Возвращает строку с описанием изменения
+     */
+    protected function getChangedStatusMessage(array $data): string
     {
         if ($data['notificationType'] === self::TYPE_NEW) {
             return __('NewPositionAdded', null, $data['resellerId']);
@@ -131,6 +159,12 @@ class TsReturnOperation extends ReferencesOperation
         return '';
     }
 
+    /**
+     * Отправляет email-уведомления сотрудникам
+     *
+     * @param array $templateData Данные для использования в шаблоне
+     * @return bool Произошла ли отправка хотя бы одного email
+     */
     protected function employeeSendEmailNotifications(array $templateData): bool
     {
         $resellerId = $templateData['COMPLAINT_ID'];
@@ -156,6 +190,13 @@ class TsReturnOperation extends ReferencesOperation
         return false;
     }
 
+    /**
+     * Отправляет email-уведомление клиенту
+     *
+     * @param Contractor $client Клиент
+     * @param array $templateData Данные для использования в шаблоне email
+     * @return bool Успешно ли отправлено письмо
+     */
     protected function clientSendEmailNotification(Contractor $client, array $templateData): bool
     {
         $resellerId = $templateData['COMPLAINT_ID'];
@@ -177,6 +218,14 @@ class TsReturnOperation extends ReferencesOperation
         return false;
     }
 
+    /**
+     * Отправляет мобильное уведомление клиенту
+     *
+     * @param Contractor $client Клиент, которому будет отправлено мобильное уведомление
+     * @param array $templateData Данные для уведомления
+     * @param string &$error Сообщение об ошибке, если отправка уведомления не удалась
+     * @return bool Возвращает true, если уведомление успешно отправлено, иначе false
+     */
     protected function clientSendMobileNotification(Contractor $client, array $templateData, &$error): bool
     {
         $resellerId = $templateData['COMPLAINT_ID'];
