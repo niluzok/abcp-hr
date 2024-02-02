@@ -113,6 +113,7 @@ class TsReturnOperation extends ReferencesOperation
 
         $templateData = [
             'COMPLAINT_ID' => $data['complaintId'],
+            'RESELLER_ID' => $data['complaintId'],
             'COMPLAINT_NUMBER' => $data['complaintNumber'],
             'CREATOR_ID' => $data['creatorId'],
             'CREATOR_NAME' => $creator->getFullName(), // Assume getFullName() exists
@@ -177,8 +178,8 @@ class TsReturnOperation extends ReferencesOperation
                     [
                         'emailFrom' => $resellerEmailFrom,
                         'emailTo'   => $email,
-                        'subject'   => __('complaintEmployeeEmailSubject', $templateData, $resellerId),
-                        'message'   => __('complaintEmployeeEmailBody', $templateData, $resellerId),
+                        'subject'   => __('complaintEmployeeEmailSubject', $templateData),
+                        'message'   => __('complaintEmployeeEmailBody', $templateData),
                     ],
                 ], $resellerId, NotificationEvents::CHANGE_RETURN_STATUS);
                 
@@ -207,8 +208,8 @@ class TsReturnOperation extends ReferencesOperation
                 [
                     'emailFrom' => $resellerEmailFrom,
                     'emailTo'   => $client->email,
-                    'subject'   => __('complaintClientEmailSubject', $templateData, $resellerId),
-                    'message'   => __('complaintClientEmailBody', $templateData, $resellerId),
+                    'subject'   => __('complaintClientEmailSubject', $templateData),
+                    'message'   => __('complaintClientEmailBody', $templateData),
                 ],
             ], $resellerId, $client->id, NotificationEvents::CHANGE_RETURN_STATUS, (int)$templateData['DIFFERENCES_TO']);
             
