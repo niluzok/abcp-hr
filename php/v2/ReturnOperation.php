@@ -45,52 +45,64 @@ class TsReturnOperation extends ReferencesOperation
     public function doOperation(): array
     {
         $data = (array)$this->getRequest('data');
-        
+
         $errors = [];
         if(!$this->validateRequestData($data, $errors)) {
             throw \Exception(__('errorOperationInputData', $errors));
         }
-        
-        $resellerId = $data['resellerId'];
-        $notificationType = (int)$data['notificationType'];
 
-        $result = [
-            'notificationEmployeeByEmail' => false,
-            'notificationClientByEmail'   => false,
-            'notificationClientBySms'     => [
-                'isSent'  => false,
-                'message' => '',
-            ],
-        ];
-        
-        $client = Contractor::getById((int)$data['clientId']);
+        $client = Contractor::getById($data['clientId']);
+        $creator = Employee::getById($data['creatorId']);
+        $expert = Employee::getById($data['expertId']);
 
-        $cFullName = $client->getFullNameForClient(); // return $client->getFullName() ?? $client->name 
+        $templateData = $this->prepareTemplateData($client, $creator, $expert, $data);
 
-        $differences = '';
-        if ($notificationType === self::TYPE_NEW) {
-            $differences = __('NewPositionAdded', null, $resellerId);
-        } elseif ($notificationType === self::TYPE_CHANGE && !empty($data['differences'])) {
-            $differences = __('PositionStatusHasChanged', [
-                    'FROM' => Status::getName((int)$data['differences']['from']),
-                    'TO'   => Status::getName((int)$data['differences']['to']),
-                ], $resellerId);
+        $employeeEmailsSent = $this->employeeSendEmailNotifications($templateData);
+
+        $clientEmailSent = false;
+        $clientMobileNotificationSent = false;
+        $mobileError = '';
+
+        // Шлём клиентское уведомление, только если произошла смена статуса
+        if ($notificationType === self::TYPE_CHANGE && !empty($data['differences']['to'])) {
+            $clientEmailSent = $this->clientSendEmailNotification($client, $templateData);
+
+            if (!empty($client->mobile)) {
+                $clientMobileNotificationSent = $this->clientSendMobileNotification($client, $templateData, $mobileError);
+            }
         }
 
+        return [
+            'notificationEmployeeByEmail' => $employeeEmailsSent ?? false,
+            'notificationClientByEmail' => $clientEmailSent ?? false,
+            'notificationClientBySms' => [
+                'isSent' => $clientMobileNotificationSent, 
+                'message' => $mobileError,
+            ],
+        ];
+    }
+
+    protected function prepareTemplateData(Contractor $client, Employee $creator, Employee $expert, $data): array
+    {
+
+        $clientFullName = $client->getFullNameForClient();
+
+        $differences = $this->getDifferencesText($data);
+
         $templateData = [
-            'COMPLAINT_ID'       => (int)$data['complaintId'],
-            'COMPLAINT_NUMBER'   => (string)$data['complaintNumber'],
-            'CREATOR_ID'         => (int)$data['creatorId'],
-            'CREATOR_NAME'       => $cr->getFullName(),
-            'EXPERT_ID'          => (int)$data['expertId'],
-            'EXPERT_NAME'        => $et->getFullName(),
-            'CLIENT_ID'          => (int)$data['clientId'],
-            'CLIENT_NAME'        => $cFullName,
-            'CONSUMPTION_ID'     => (int)$data['consumptionId'],
-            'CONSUMPTION_NUMBER' => (string)$data['consumptionNumber'],
-            'AGREEMENT_NUMBER'   => (string)$data['agreementNumber'],
-            'DATE'               => (string)$data['date'],
-            'DIFFERENCES'        => $differences,
+            'COMPLAINT_ID' => $data['complaintId'],
+            'COMPLAINT_NUMBER' => $data['complaintNumber'],
+            'CREATOR_ID' => $data['creatorId'],
+            'CREATOR_NAME' => $creator->getFullName(), // Assume getFullName() exists
+            'EXPERT_ID' => $data['expertId'],
+            'EXPERT_NAME' => $expert->getFullName(), // Assume getFullName() exists
+            'CLIENT_ID' => $data['clientId'],
+            'CLIENT_NAME' => $clientFullName,
+            'CONSUMPTION_ID' => $data['consumptionId'],
+            'CONSUMPTION_NUMBER' => $data['consumptionNumber'],
+            'AGREEMENT_NUMBER' => $data['agreementNumber'],
+            'DATE' => $data['date'],
+            'DIFFERENCES' => $differences,
         ];
 
         // Если хоть одна переменная для шаблона не задана, то не отправляем уведомления
@@ -100,49 +112,82 @@ class TsReturnOperation extends ReferencesOperation
             }
         }
 
-        $emailFrom = getResellerEmailFrom($resellerId);
-        // Получаем email сотрудников из настроек
+        return $templateData;
+    }
+
+    protected function getDifferencesText($data): string
+    {
+        if ($data['notificationType'] === self::TYPE_NEW) {
+            return __('NewPositionAdded', null, $data['resellerId']);
+        } elseif ($data['notificationType'] === self::TYPE_CHANGE && !empty($data['differences'])) {
+            return __('PositionStatusHasChanged', [
+                'FROM' => Status::getName($data['differences']['from']),
+                'TO' => Status::getName($data['differences']['to']),
+            ], $data['resellerId']);
+        }
+
+        return '';
+    }
+
+    protected function employeeSendEmailNotifications(array $templateData): bool
+    {
+        $resellerId = $templateData['COMPLAINT_ID'];
+        $resellerEmailFrom = getResellerEmailFrom($resellerId);
         $emails = getEmailsByPermit($resellerId, 'tsGoodsReturn');
-        if (!empty($emailFrom) && count($emails) > 0) {
+
+        if (!empty($resellerEmailFrom) && count($emails) > 0) {
             foreach ($emails as $email) {
                 MessagesClient::sendMessage([
-                    0 => [ // MessageTypes::EMAIL
-                           'emailFrom' => $emailFrom,
-                           'emailTo'   => $email,
-                           'subject'   => __('complaintEmployeeEmailSubject', $templateData, $resellerId),
-                           'message'   => __('complaintEmployeeEmailBody', $templateData, $resellerId),
+                    [
+                        'emailFrom' => $resellerEmailFrom,
+                        'emailTo'   => $email,
+                        'subject'   => __('complaintEmployeeEmailSubject', $templateData, $resellerId),
+                        'message'   => __('complaintEmployeeEmailBody', $templateData, $resellerId),
                     ],
                 ], $resellerId, NotificationEvents::CHANGE_RETURN_STATUS);
-                $result['notificationEmployeeByEmail'] = true;
-
+                
             }
+            
+            return true;
         }
 
-        // Шлём клиентское уведомление, только если произошла смена статуса
-        if ($notificationType === self::TYPE_CHANGE && !empty($data['differences']['to'])) {
-            if (!empty($emailFrom) && !empty($client->email)) {
-                MessagesClient::sendMessage([
-                    0 => [ // MessageTypes::EMAIL
-                           'emailFrom' => $emailFrom,
-                           'emailTo'   => $client->email,
-                           'subject'   => __('complaintClientEmailSubject', $templateData, $resellerId),
-                           'message'   => __('complaintClientEmailBody', $templateData, $resellerId),
-                    ],
-                ], $resellerId, $client->id, NotificationEvents::CHANGE_RETURN_STATUS, (int)$data['differences']['to']);
-                $result['notificationClientByEmail'] = true;
-            }
+        return false;
+    }
 
-            if (!empty($client->mobile)) {
-                $res = NotificationManager::send($resellerId, $client->id, NotificationEvents::CHANGE_RETURN_STATUS, (int)$data['differences']['to'], $templateData, $error);
-                if ($res) {
-                    $result['notificationClientBySms']['isSent'] = true;
-                }
-                if (!empty($error)) {
-                    $result['notificationClientBySms']['message'] = $error;
-                }
-            }
+    protected function clientSendEmailNotification(Contractor $client, array $templateData): bool
+    {
+        $resellerId = $templateData['COMPLAINT_ID'];
+        $resellerEmailFrom = getResellerEmailFrom($resellerId);
+        
+        if (!empty($resellerEmailFrom) && !empty($client->email)) {
+            MessagesClient::sendMessage([
+                [
+                    'emailFrom' => $resellerEmailFrom,
+                    'emailTo'   => $client->email,
+                    'subject'   => __('complaintClientEmailSubject', $templateData, $resellerId),
+                    'message'   => __('complaintClientEmailBody', $templateData, $resellerId),
+                ],
+            ], $resellerId, $client->id, NotificationEvents::CHANGE_RETURN_STATUS, (int)$data['differences']['to']);
+            
+            return true;
         }
 
-        return $result;
+        return false;
+    }
+
+    protected function clientSendMobileNotification(Contractor $client, $templateData, &$error): bool
+    {
+        $resellerId = $templateData['COMPLAINT_ID'];
+
+        $res = NotificationManager::send(
+            $resellerId,
+            $client->id,
+            NotificationEvents::CHANGE_RETURN_STATUS,
+            (int)$data['differences']['to'],
+            $templateData,
+            $error
+        );
+
+        return (bool)$res;
     }
 }

@@ -21,6 +21,11 @@ class Contractor
     {
         return $this->name . ' ' . $this->id;
     }
+
+    public function getFullNameForClient(): string
+    {
+        return $this->getFullName() ?? $this->name;
+    }
 }
 
 class Seller extends Contractor
