@@ -7,14 +7,53 @@ class TsReturnOperation extends ReferencesOperation
     public const TYPE_NEW    = 1;
     public const TYPE_CHANGE = 2;
 
+    protected function validateRequestData($data, &$errors)
+    {
+        if (empty($data['resellerId'])) {
+            $errors[] = 'Empty resellerId';
+        }
+
+        if (empty($data['notificationType'])) {
+            $errors[] = 'Empty notificationType';
+        }
+
+        if (!Seller::getById($data['resellerId'])) {
+            $errors[] = 'Seller not found!';
+        }
+
+        if (!Employee::getById($data['creatorId'])) {
+            $errors[] = 'Creator not found!';
+        }
+
+        if (!Employee::getById($data['expertId'])) {
+            $errors[] = 'Expert not found!';
+        }
+
+        $client = Contractor::getById($data['clientId']);
+        if ($client === null || !$client->isCustomer() || ($client->getSellerId() !== $data['resellerId'])) {
+            $errors[] = 'Client not found or mismatch!';
+        }
+
+        //  some $data['differences'] validations
+
+        return empty($errors);
+    }
+
     /**
      * @throws \Exception
      */
-    public function doOperation(): void
+    public function doOperation(): array
     {
         $data = (array)$this->getRequest('data');
+        
+        $errors = [];
+        if(!$this->validateRequestData($data, $errors)) {
+            throw \Exception(__('errorOperationInputData', $errors));
+        }
+        
         $resellerId = $data['resellerId'];
         $notificationType = (int)$data['notificationType'];
+
         $result = [
             'notificationEmployeeByEmail' => false,
             'notificationClientByEmail'   => false,
@@ -23,40 +62,10 @@ class TsReturnOperation extends ReferencesOperation
                 'message' => '',
             ],
         ];
-
-        if (empty((int)$resellerId)) {
-            $result['notificationClientBySms']['message'] = 'Empty resellerId';
-            return $result;
-        }
-
-        if (empty((int)$notificationType)) {
-            throw new \Exception('Empty notificationType', 400);
-        }
-
-        $reseller = Seller::getById((int)$resellerId);
-        if ($reseller === null) {
-            throw new \Exception('Seller not found!', 400);
-        }
-
+        
         $client = Contractor::getById((int)$data['clientId']);
-        if ($client === null || $client->type !== Contractor::TYPE_CUSTOMER || $client->Seller->id !== $resellerId) {
-            throw new \Exception('сlient not found!', 400);
-        }
 
-        $cFullName = $client->getFullName();
-        if (empty($client->getFullName())) {
-            $cFullName = $client->name;
-        }
-
-        $cr = Employee::getById((int)$data['creatorId']);
-        if ($cr === null) {
-            throw new \Exception('Creator not found!', 400);
-        }
-
-        $et = Employee::getById((int)$data['expertId']);
-        if ($et === null) {
-            throw new \Exception('Expert not found!', 400);
-        }
+        $cFullName = $client->getFullNameForClient(); // return $client->getFullName() ?? $client->name 
 
         $differences = '';
         if ($notificationType === self::TYPE_NEW) {
