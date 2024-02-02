@@ -7,7 +7,7 @@ class TsReturnOperation extends ReferencesOperation
     public const TYPE_NEW    = 1;
     public const TYPE_CHANGE = 2;
 
-    protected function validateRequestData($data, &$errors)
+    protected function validateRequestData(array $data, array &$errors): bool
     {
         if (empty($data['resellerId'])) {
             $errors[] = 'Empty resellerId';
@@ -48,7 +48,7 @@ class TsReturnOperation extends ReferencesOperation
 
         $errors = [];
         if(!$this->validateRequestData($data, $errors)) {
-            throw \Exception(__('errorOperationInputData', $errors));
+            throw new \Exception(__('errorOperationInputData', $errors));
         }
 
         $client = Contractor::getById($data['clientId']);
@@ -64,7 +64,7 @@ class TsReturnOperation extends ReferencesOperation
         $mobileError = '';
 
         // Шлём клиентское уведомление, только если произошла смена статуса
-        if ($notificationType === self::TYPE_CHANGE && !empty($data['differences']['to'])) {
+        if ($data['notificationType'] === self::TYPE_CHANGE && !empty($data['differences']['to'])) {
             $clientEmailSent = $this->clientSendEmailNotification($client, $templateData);
 
             if (!empty($client->mobile)) {
@@ -82,7 +82,7 @@ class TsReturnOperation extends ReferencesOperation
         ];
     }
 
-    protected function prepareTemplateData(Contractor $client, Employee $creator, Employee $expert, $data): array
+    protected function prepareTemplateData(Contractor $client, Employee $creator, Employee $expert, array $data): array
     {
 
         $clientFullName = $client->getFullNameForClient();
@@ -103,6 +103,8 @@ class TsReturnOperation extends ReferencesOperation
             'AGREEMENT_NUMBER' => $data['agreementNumber'],
             'DATE' => $data['date'],
             'DIFFERENCES' => $differences,
+            'DIFFERENCES_FROM' => $data['differences']['from'],
+            'DIFFERENCES_TO' => $data['differences']['to'],
         ];
 
         // Если хоть одна переменная для шаблона не задана, то не отправляем уведомления
@@ -115,7 +117,7 @@ class TsReturnOperation extends ReferencesOperation
         return $templateData;
     }
 
-    protected function getDifferencesText($data): string
+    protected function getDifferencesText(array $data): string
     {
         if ($data['notificationType'] === self::TYPE_NEW) {
             return __('NewPositionAdded', null, $data['resellerId']);
@@ -167,7 +169,7 @@ class TsReturnOperation extends ReferencesOperation
                     'subject'   => __('complaintClientEmailSubject', $templateData, $resellerId),
                     'message'   => __('complaintClientEmailBody', $templateData, $resellerId),
                 ],
-            ], $resellerId, $client->id, NotificationEvents::CHANGE_RETURN_STATUS, (int)$data['differences']['to']);
+            ], $resellerId, $client->id, NotificationEvents::CHANGE_RETURN_STATUS, (int)$templateData['DIFFERENCES_TO']);
             
             return true;
         }
@@ -175,7 +177,7 @@ class TsReturnOperation extends ReferencesOperation
         return false;
     }
 
-    protected function clientSendMobileNotification(Contractor $client, $templateData, &$error): bool
+    protected function clientSendMobileNotification(Contractor $client, array $templateData, &$error): bool
     {
         $resellerId = $templateData['COMPLAINT_ID'];
 
@@ -183,7 +185,7 @@ class TsReturnOperation extends ReferencesOperation
             $resellerId,
             $client->id,
             NotificationEvents::CHANGE_RETURN_STATUS,
-            (int)$data['differences']['to'],
+            (int)$templateData['DIFFERENCES_TO'],
             $templateData,
             $error
         );
