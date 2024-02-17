@@ -39,7 +39,7 @@ class TsReturnOperation extends ReferencesOperation
             $errors[] = 'Expert not found!';
         }
 
-        $client = Contractor::getById($data['clientId']);
+        $client = Client::getById($data['clientId']);
         if ($client === null || !$client->isCustomer() || ($client->getSellerId() !== $data['resellerId'])) {
             $errors[] = 'Client not found or mismatch!';
         }
@@ -64,8 +64,8 @@ class TsReturnOperation extends ReferencesOperation
             throw new \Exception(__('errorOperationInputData', $errors));
         }
 
-        $reseller = Seller::getById($data['resellerId']);
-        $client = Contractor::getById($data['clientId']);
+        $reseller = SellerNotifiable::getById($data['resellerId']);
+        $client = ClientNotifiable::getById($data['clientId']);
         $creator = Employee::getById($data['creatorId']);
         $expert = Employee::getById($data['expertId']);
 
@@ -79,7 +79,7 @@ class TsReturnOperation extends ReferencesOperation
 
         // Шлём клиентское уведомление, только если произошла смена статуса
         if ($data['notificationType'] === self::TYPE_CHANGE && !empty($data['differences']['to'])) {
-            $clientEmailSent = $client->notify($templateData);
+            $clientEmailSent = $client->notify($reseller, $templateData);
         }
 
         return [

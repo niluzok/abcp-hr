@@ -1,6 +1,6 @@
 <?php
 
-namespace NW\WebService\References\Operations\Notification;
+namespace NW\WebService\References\Operations\Notification\models;
 
 /**
  * @property Seller $Seller
@@ -30,6 +30,26 @@ class Contractor
 
 class Employee extends Contractor
 {
+}
+
+class Client extends Contractor
+{
+}
+
+class Seller extends Contractor
+{
+    const EVENT_RETURN = 'tsGoodsReturn';
+
+    protected function getEmailFrom()
+    {
+        return 'contractor@example.com';
+    }
+
+    protected function getEmailsByPermit($event)
+    {
+        // fakes the method
+        return ['someemeil@example.com', 'someemeil2@example.com'];
+    }
 }
 
 class Status
